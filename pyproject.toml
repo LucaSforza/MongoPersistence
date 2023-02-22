@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "mongopersistence"
+version = "0.1.0"
+description = "Package to add persistence to your telegram bot using pymongo"
+authors = ["LucaSforza <lucasforza1234@icloud.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pymongo = "^4.3.3"
+python-telegram-bot = "^20.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
