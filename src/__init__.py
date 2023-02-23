@@ -1,2 +1,2 @@
 from persistence import MongoPersistence
-from dbhelper    import *
+from dbhelper    import DBMongoHelper
