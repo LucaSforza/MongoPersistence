@@ -6,17 +6,30 @@ from telegram.ext import PersistenceInput
 
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.database import Database
+
+@dataclass()
+class typedata:
+
+    collection_name : str
+    db  : Database
+
+    col : Collection = None
+    data : dict = None
+    
+    def exists(self) -> bool:
+        return not self.collection_name is None
+    
+    def genetare_collection(self):
+        if self.exists():
+            self.col = self.db[self.collection_name]
+            return self.col
 
 @dataclass(frozen=True)
 class DBMongoHelper:
 
     mongo_key : str
     db_name   : str
-
-    bot_data: bool = True
-    chat_data: bool = True
-    user_data: bool = True
-    callback_data: bool = True
 
     name_col_user_data : str = None
     name_col_chat_data : str = None
@@ -26,31 +39,19 @@ class DBMongoHelper:
     name_col_conversations : str = None
 
     def __post_init__(self) -> None:
-        self.store_data = PersistenceInput(
-            self.bot_data,
-            self.chat_data,
-            self.user_data,
-            self.callback_data
-        )
+        
         self.client = MongoClient(self.mongo_key)
         self.db     = self.client[self.db_name]
-    
-    def generate_user_data_col(self) -> Optional[Collection]:
-        if self.store_data.user_data:
-            return self.db[self.name_col_user_data]
 
-    def generate_chat_data_col(self) -> Optional[Collection]:
-        if self.store_data.chat_data:
-            return self.db[self.name_col_chat_data]
+        self.bot_data = typedata(self.name_col_bot_data,self.db)
+        self.chat_data = typedata(self.name_col_chat_data,self.db)
+        self.user_data = typedata(self.name_col_user_data,self.db)
+        self.callback_data = typedata(self.name_col_callback_data,self.db)
+        self.conversations_data = typedata(self.name_col_conversations,self.db)
 
-    def generate_bot_data_col(self) -> Optional[Collection]:
-        if self.store_data.bot_data:
-            return self.db[self.name_col_bot_data]
-
-    def generate_callback_data_col(self) -> Optional[Collection]:
-        if self.store_data.callback_data:
-            return self.db[self.name_col_callback_data]
-
-    def generate_conversations_data_col(self) -> Optional[Collection]:
-        if self.name_col_conversations:
-            return self.db[self.name_col_user_data]
+        self.store_data = PersistenceInput(
+            self.bot_data.exists(),
+            self.chat_data.exists(),
+            self.user_data.exists(),
+            self.callback_data.exists()
+        )

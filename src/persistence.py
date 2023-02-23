@@ -6,8 +6,6 @@ from typing import Dict, Optional
 from telegram.ext import BasePersistence
 from telegram.ext._utils.types import BD, CD, UD, CDCData, ConversationDict, ConversationKey 
 
-from pymongo.collection import Collection
-
 BOT_DATA_KEY = 0
 
 class MongoPersistence(BasePersistence[BD,CD,UD]):
@@ -19,123 +17,131 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 
         self.load_on_flush = load_on_flush
 
-        self.col_user = helper.generate_user_data_col()
-        self.col_chat = helper.generate_chat_data_col()
-        self.col_bot  = helper.generate_bot_data_col()
+        self.user_data : typedata = helper.user_data
+        self.chat_data : typedata = helper.chat_data
+        self.bot_data  : typedata = helper.bot_data
 
-        self.col_callback      = helper.generate_callback_data_col()
-        self.col_conversations = helper.generate_conversations_data_col()
-
-        self.user_data : dict = None
-        self.chat_data : dict = None
-        self.bot_data  : BD   = None
-
-        self.callback_data      = None
-        self.conversations_data = None
+        self.callback_data      : typedata = helper.callback_data
+        self.conversations_data : typedata = helper.conversations_data
 
 # [================================================ GENERAL FUNCTIONS ==================================================]
 
-    def _get_data(self,type_data,collection: Collection) -> dict:
-        if not type_data:
-            type_data = dict()
+    def _get_data(self,type_data: typedata) -> dict:
+        if not type_data.exists():
+            return
+        if not type_data.data:
+            data = type_data.data
+            data = dict()
             post : dict
-            for post in collection.find():
+            for post in type_data.col.find():
                 id = post.pop('_id')
-                type_data[id] = post
-        return deepcopy(type_data)
+                data[id] = post
+        return deepcopy(data)
 
-    def _update_data(self,type_data,collection: Collection,id,data) -> None:
-        if not self.load_on_flush:
+    def _update_data(self,type_data: typedata,id,new_data) -> None:
+        if not type_data.exists() or self.load_on_flush:
             return
-        if type_data is None:
-            type_data = dict()
-        if type_data.get(id) == data:
+        data = type_data.data
+        if data is None:
+            data = dict()
+        if data.get(id) == new_data:
             return
-        type_data[id] = data
         new_post = {'_id':id}
-        new_post.update(data)
-        old_post = collection.find_one({"_id":id})
+        new_post.update(new_data)
+        old_post = type_data.col.find_one({"_id":id})
         if not old_post:
-            collection.insert_one(new_post)
+            type_data.col.insert_one(new_post)
             return
         if old_post != new_post:
-            collection.replace_one({'_id':id},new_post)
+            type_data.col.replace_one({'_id':id},new_post)
+        data[id] = new_data
     
-    def _refresh_data(self,type_data,collection: Collection,id,local_data) -> None:
-        if not self.load_on_flush:
+    def _refresh_data(self,type_data: typedata,id,local_data) -> None:
+        if not type_data.exists() or self.load_on_flush:
             return
-        if not type_data:
-            type_data = dict()
-        post : dict = collection.find_one({"_id":id})
+        data = type_data.data
+        if not data:
+            data = dict()
+        post : dict = type_data.col.find_one({"_id":id})
         if not post:
             return
         post.pop('_id')
         if post != local_data:
             local_data = post
-            type_data[id] = post
+            data[id] = post
 
-    def _drop_data(self,type_data: dict,collection: Collection,id) -> None:
-        if type_data.get(id):
-            type_data.pop(id)
-            collection.delete_one({'_id':id})
-
-    def _load_all_type_data(self,type_data: dict,collection: Collection) -> None:
-        if not type_data:
+    def _drop_data(self,type_data: typedata,id) -> None:
+        if not type_data.exists():
             return
-        for key,item in type_data.items():
+        data = type_data.data
+        if data.get(id):
+            data.pop(id)
+            type_data.col.delete_one({'_id':id})
+
+    def _load_all_type_data(self,type_data: typedata) -> None:
+        if not type_data.exists():
+            return
+        data = type_data.data
+        for key,item in data.items():
             new_post = {'_id':key}
             new_post.update(item)
-            old_post = collection.find_one({'_id':key})
+            old_post = type_data.col.find_one({'_id':key})
             if not old_post:
-                collection.insert_one(new_post)
+                type_data.col.insert_one(new_post)
                 continue
             if old_post != new_post:
-                collection.replace_one({'_id':key},new_post)
+                type_data.col.replace_one({'_id':key},new_post)
 
 # [================================================ USER DATA FUNCTIONS ==================================================]
 
     async def get_user_data(self) -> Dict[int, UD]:
-        return self._get_data(self.user_data,self.col_user)
+        return self._get_data(self.user_data)
 
     async def update_user_data(self, user_id: int, data: UD) -> None:
-        self._update_data(self.user_data,self.col_user,user_id,data)
+        self._update_data(self.user_data,user_id,data)
         
     async def refresh_user_data(self, user_id: int, user_data: UD) -> None:
-        self._refresh_data(self.user_data,self.col_user,user_id,user_data)
+        self._refresh_data(self.user_data,user_id,user_data)
 
     async def drop_user_data(self, user_id: int) -> None:
-        self._drop_data(self.user_data,self.col_user,user_id)
+        self._drop_data(self.user_data,user_id)
 
 # [================================================ BOT DATA FUNCTIONS ==================================================]
 
     async def get_bot_data(self) -> BD:
-        if not self.bot_data:
-            post: dict = self.col_bot.find_one({'_id':BOT_DATA_KEY})
+        if not self.bot_data.exists():
+            return
+        data = self.bot_data.data
+        collection = self.bot_data.col
+        if not data:
+            post: dict = collection.find_one({'_id':BOT_DATA_KEY})
             if post:
-                self.bot_data = post['content']
+                data = post['content']
             else:
-                self.bot_data = dict()
-        return deepcopy(self.bot_data)
+                data = dict()
+        return deepcopy(data)
 
     async def update_bot_data(self, data: BD) -> None:
-        if not self.load_on_flush:
+        if not self.bot_data.exists() or self.load_on_flush:
             return
-        if self.bot_data is None:
-            self.bot_data = self.get_bot_data()
-        if self.bot_data == data:
+        old_data = self.bot_data.data
+        if old_data is None:
+            old_data = self.get_bot_data()
+        if old_data == data:
             return
-        self.bot_data = data
+        collection = self.bot_data.col
+        old_data = data
         new_post = {'_id':BOT_DATA_KEY}
         new_post.update({'content':data})
-        old_post = self.col_bot.find_one({"_id":BOT_DATA_KEY})
+        old_post = collection.find_one({"_id":BOT_DATA_KEY})
         if not old_post:
-            self.col_bot.insert_one(new_post)
+            collection.insert_one(new_post)
             return
         if old_post != new_post:
-            self.col_bot.update_one({'_id':BOT_DATA_KEY},{'$set':{'content':data}})
+            collection.update_one({'_id':BOT_DATA_KEY},{'$set':{'content':data}})
 
     async def refresh_bot_data(self, bot_data: BD) -> None:
-        if not self.load_on_flush:
+        if self.load_on_flush or not self.bot_data.exists():
             return
         if self.bot_data is None:
             self.bot_data = self.get_bot_data()
@@ -150,16 +156,16 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 # [================================================ CHAT DATA FUNCTIONS ==================================================]
 
     async def get_chat_data(self) -> Dict[int, CD]:
-        return self._get_data(self.chat_data,self.col_chat)
+        return self._get_data(self.chat_data)
 
     async def update_chat_data(self, chat_id: int, data: CD) -> None:
-        self._update_data(self.chat_data,self.col_chat,chat_id,data)
+        self._update_data(self.chat_data,chat_id,data)
 
     async def refresh_chat_data(self, chat_id: int, chat_data: CD) -> None:
-        self._refresh_data(self.chat_data,self.col_chat,chat_id,chat_data)
+        self._refresh_data(self.chat_data,chat_id,chat_data)
 
     async def drop_chat_data(self, chat_id: int) -> None:
-        self._drop_data(self.chat_data,self.col_chat,chat_id)
+        self._drop_data(self.chat_data,chat_id)
 
 # [================================================ CALLBACK DATA FUNCTIONS ==================================================]
 
@@ -185,14 +191,14 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 
     async def flush(self) -> None:
         if self.load_on_flush:
-            self._load_all_type_data(self.user_data,self.col_user)
-            self._load_all_type_data(self.chat_data,self.col_chat)
-            if self.bot_data:
-                new_post = {'_id':BOT_DATA_KEY,'content':self.bot_data}
-                old_post = self.col_bot.find_one({'_id':BOT_DATA_KEY})
+            self._load_all_type_data(self.user_data)
+            self._load_all_type_data(self.chat_data)
+            if self.bot_data.exists():
+                new_post = {'_id':BOT_DATA_KEY,'content':self.bot_data.data}
+                old_post = self.bot_data.col.find_one({'_id':BOT_DATA_KEY})
                 if old_post:
                     if old_post!=new_post:
-                        self.col_bot.update_one({'_id':BOT_DATA_KEY},{'$set':{'content':self.bot_data}})
+                        self.bot_data.col.update_one({'_id':BOT_DATA_KEY},{'$set':{'content':self.bot_data}})
                 else:
-                    self.col_bot.insert_one(new_post)
+                    self.bot_data.col.insert_one(new_post)
         self.helper.client.close()
