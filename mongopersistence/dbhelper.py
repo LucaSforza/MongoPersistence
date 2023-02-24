@@ -1,5 +1,3 @@
-
-from typing import Dict, Optional
 from dataclasses import dataclass,field
 
 from telegram.ext import PersistenceInput
@@ -15,7 +13,7 @@ class typedata:
     db  : Database
 
     col : Collection = None
-    data : dict = None
+    data : dict = field(default_factory=dict)
     
     def exists(self) -> bool:
         return not self.collection_name is None
@@ -27,6 +25,8 @@ class typedata:
 @dataclass()
 class DBMongoHelper:
 
+    #TODO: add support for callback_data
+
     mongo_key : str
     db_name   : str
 
@@ -34,7 +34,7 @@ class DBMongoHelper:
     name_col_chat_data : str = None
     name_col_bot_data  : str = None
 
-    name_col_callback_data : str = None
+    #name_col_callback_data : str = None
     name_col_conversations : str = None
 
     #TODO: add a feature that allows you to ignore dictionary elements using string lists so they don't become persistent
@@ -47,12 +47,12 @@ class DBMongoHelper:
         self.bot_data = typedata(self.name_col_bot_data,self.db)
         self.chat_data = typedata(self.name_col_chat_data,self.db)
         self.user_data = typedata(self.name_col_user_data,self.db)
-        self.callback_data = typedata(self.name_col_callback_data,self.db)
+        #self.callback_data = typedata(self.name_col_callback_data,self.db)
         self.conversations_data = typedata(self.name_col_conversations,self.db)
 
         self.store_data = PersistenceInput(
             self.bot_data.exists(),
             self.chat_data.exists(),
             self.user_data.exists(),
-            self.callback_data.exists()
+            False #self.callback_data.exists()
         )
