@@ -1,3 +1,5 @@
 __pycache__/
 .DS_Store
 test/
+costants.py
+test_bot.py

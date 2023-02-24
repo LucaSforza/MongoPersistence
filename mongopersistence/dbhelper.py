@@ -1,6 +1,6 @@
 
 from typing import Dict, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 
 from telegram.ext import PersistenceInput
 
@@ -19,13 +19,12 @@ class typedata:
     
     def exists(self) -> bool:
         return not self.collection_name is None
-    
-    def genetare_collection(self):
+
+    def __post_init__(self) -> None:
         if self.exists():
             self.col = self.db[self.collection_name]
-            return self.col
 
-@dataclass(frozen=True)
+@dataclass()
 class DBMongoHelper:
 
     mongo_key : str
@@ -37,6 +36,8 @@ class DBMongoHelper:
 
     name_col_callback_data : str = None
     name_col_conversations : str = None
+
+    #TODO: add a feature that allows you to ignore dictionary elements using string lists so they don't become persistent
 
     def __post_init__(self) -> None:
         

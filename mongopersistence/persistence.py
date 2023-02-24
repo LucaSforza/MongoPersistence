@@ -2,6 +2,7 @@ from dbhelper import *
 
 from copy import deepcopy
 from typing import Dict, Optional
+import hashlib
 
 from telegram.ext import BasePersistence
 from telegram.ext._utils.types import BD, CD, UD, CDCData, ConversationDict, ConversationKey 
@@ -26,7 +27,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 
 # [================================================ GENERAL FUNCTIONS ==================================================]
 
-    def _get_data(self,type_data: typedata) -> dict:
+    def get_data(self,type_data: typedata) -> dict:
         if not type_data.exists():
             return
         if not type_data.data:
@@ -38,8 +39,8 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
                 data[id] = post
         return deepcopy(data)
 
-    def _update_data(self,type_data: typedata,id,new_data) -> None:
-        if not type_data.exists() or self.load_on_flush:
+    def update_data(self,type_data: typedata,id,new_data) -> None:
+        if not type_data.exists() or self.load_on_flush or new_data == {}:
             return
         data = type_data.data
         if data is None:
@@ -56,7 +57,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             type_data.col.replace_one({'_id':id},new_post)
         data[id] = new_data
     
-    def _refresh_data(self,type_data: typedata,id,local_data) -> None:
+    def refresh_data(self,type_data: typedata,id,local_data) -> None:
         if not type_data.exists() or self.load_on_flush:
             return
         data = type_data.data
@@ -70,7 +71,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             local_data = post
             data[id] = post
 
-    def _drop_data(self,type_data: typedata,id) -> None:
+    def drop_data(self,type_data: typedata,id) -> None:
         if not type_data.exists():
             return
         data = type_data.data
@@ -78,7 +79,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             data.pop(id)
             type_data.col.delete_one({'_id':id})
 
-    def _load_all_type_data(self,type_data: typedata) -> None:
+    def load_all_type_data(self,type_data: typedata) -> None:
         if not type_data.exists():
             return
         data = type_data.data
@@ -95,16 +96,16 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 # [================================================ USER DATA FUNCTIONS ==================================================]
 
     async def get_user_data(self) -> Dict[int, UD]:
-        return self._get_data(self.user_data)
+        return self.get_data(self.user_data)
 
     async def update_user_data(self, user_id: int, data: UD) -> None:
-        self._update_data(self.user_data,user_id,data)
+        self.update_data(self.user_data,user_id,data)
         
     async def refresh_user_data(self, user_id: int, user_data: UD) -> None:
-        self._refresh_data(self.user_data,user_id,user_data)
+        self.refresh_data(self.user_data,user_id,user_data)
 
     async def drop_user_data(self, user_id: int) -> None:
-        self._drop_data(self.user_data,user_id)
+        self.drop_data(self.user_data,user_id)
 
 # [================================================ BOT DATA FUNCTIONS ==================================================]
 
@@ -122,17 +123,16 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         return deepcopy(data)
 
     async def update_bot_data(self, data: BD) -> None:
-        if not self.bot_data.exists() or self.load_on_flush:
+        if not self.bot_data.exists() or self.load_on_flush or data == {}:
             return
         old_data = self.bot_data.data
         if old_data is None:
-            old_data = self.get_bot_data()
+            old_data = dict()
         if old_data == data:
             return
         collection = self.bot_data.col
         old_data = data
-        new_post = {'_id':BOT_DATA_KEY}
-        new_post.update({'content':data})
+        new_post = {'_id':BOT_DATA_KEY,'content':data}
         old_post = collection.find_one({"_id":BOT_DATA_KEY})
         if not old_post:
             collection.insert_one(new_post)
@@ -145,7 +145,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             return
         if self.bot_data is None:
             self.bot_data = self.get_bot_data()
-        post : dict = self.col_bot.find_one({'_id':BOT_DATA_KEY})
+        post : dict = self.bot_data.col.find_one({'_id':BOT_DATA_KEY})
         if post:
             external_data = post.get('content')
             if external_data != bot_data:
@@ -156,16 +156,16 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 # [================================================ CHAT DATA FUNCTIONS ==================================================]
 
     async def get_chat_data(self) -> Dict[int, CD]:
-        return self._get_data(self.chat_data)
+        return self.get_data(self.chat_data)
 
     async def update_chat_data(self, chat_id: int, data: CD) -> None:
-        self._update_data(self.chat_data,chat_id,data)
+        self.update_data(self.chat_data,chat_id,data)
 
     async def refresh_chat_data(self, chat_id: int, chat_data: CD) -> None:
-        self._refresh_data(self.chat_data,chat_id,chat_data)
+        self.refresh_data(self.chat_data,chat_id,chat_data)
 
     async def drop_chat_data(self, chat_id: int) -> None:
-        self._drop_data(self.chat_data,chat_id)
+        self.drop_data(self.chat_data,chat_id)
 
 # [================================================ CALLBACK DATA FUNCTIONS ==================================================]
 
@@ -180,19 +180,46 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 # [================================================ CONVERSATIONS DATA FUNCTIONS ==================================================]
 
     async def get_conversations(self, name: str) -> ConversationDict:
-        #TODO: create this method
-        pass
+        if not self.conversations_data.exists():
+            return
+        data = self.conversations_data.data
+        if not data:
+            data = dict()
+        if not data.get(name):
+            post: dict = self.conversations_data.col.find_one({'_id':name})
+            if post:
+                post.pop('_id')
+                data[name] = post
+            else:
+                data[name] = dict()
+        return deepcopy(data.get(name))
 
     async def update_conversation(self, name: str, key: ConversationKey, new_state: Optional[object]) -> None:
-        #TODO: create this method
-        pass
+        if self.load_on_flush or not self.conversations_data.exists():
+            return
+        data: dict[str,dict] = self.conversations_data.data
+        if not data:
+            data = dict()
+        if data.setdefault(name,{}).get(key) == new_state:
+            return
+        data[name][key] = new_state
+        collection = self.conversations_data.col
+        new_post = {'_id':name,key:new_state}
+        old_post: dict = collection.find_one({'_id':name})
+        if not old_post:
+            collection.insert_one(new_post)
+            return
+        if new_post!=old_post:
+            old_post.update(new_post)
+            collection.replace_one({'_id':name},old_post)
+        
 
 # [================================================ FLUSH FUNCTION ==================================================]
 
     async def flush(self) -> None:
         if self.load_on_flush:
-            self._load_all_type_data(self.user_data)
-            self._load_all_type_data(self.chat_data)
+            self.load_all_type_data(self.user_data)
+            self.load_all_type_data(self.chat_data)
             if self.bot_data.exists():
                 new_post = {'_id':BOT_DATA_KEY,'content':self.bot_data.data}
                 old_post = self.bot_data.col.find_one({'_id':BOT_DATA_KEY})
