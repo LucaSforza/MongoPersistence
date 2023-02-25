@@ -53,7 +53,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             type_data.col.replace_one({'_id':id},new_post)
         data[id] = new_data
     
-    def refresh_data(self,type_data: typedata,id,local_data) -> None:
+    def refresh_data(self,type_data: typedata,id,local_data: dict) -> None:
         if not type_data.exists() or self.load_on_flush:
             return
         data = type_data.data
@@ -62,7 +62,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             return
         post.pop('_id')
         if post != local_data:
-            local_data = post
+            local_data.update(post)
             data[id] = post
 
     def drop_data(self,type_data: typedata,id) -> None:
@@ -137,8 +137,8 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         if post:
             external_data = post.get('content')
             if external_data != bot_data:
-                self.bot_data = external_data
-                bot_data = external_data
+                self.bot_data.data = external_data
+                bot_data: dict.update(external_data)
 
 
 # [================================================ CHAT DATA FUNCTIONS ==================================================]

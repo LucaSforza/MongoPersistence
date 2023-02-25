@@ -1,5 +1,6 @@
 __pycache__/
 .DS_Store
-test/
+tests/
 costants.py
 test_bot.py
+dist/
