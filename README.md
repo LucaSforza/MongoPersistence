@@ -3,7 +3,7 @@
 
 Package to add persistence to your telegram bot in a mongodb database.
 
-ATTENTION: MongoPersistence is a new project, it should work, but if you encounter any bugs please report them in the problems section and if you have an idea how to fix it please consider opening a PR.
+ATTENTION: MongoPersistence is a new project, it should work, but if you encounter any bugs please report them in the [Issues](https://github.com/LucaSforza/MongoPersistence/issues) section and if you have an idea how to fix it please consider opening a [PR](https://github.com/LucaSforza/MongoPersistence/pulls).
 ## Usage
 
 First make sure you have created a database using mongodb.
