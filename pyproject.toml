@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mongopersistence"
-version = "0.1.0"
+version = "0.1.1"
 description = "Package to add persistence to your telegram bot using pymongo"
 authors = ["LucaSforza <lucasforza1234@icloud.com>"]
 license = "MIT"
