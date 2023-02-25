@@ -73,6 +73,20 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             data.pop(id)
             type_data.col.delete_one({'_id':id})
 
+    def load_all_type_data(self,type_data: typedata) -> None:
+        if not type_data.exists():
+            return
+        data = type_data.data
+        for key,item in data.items():
+            new_post = {'_id':key}
+            new_post.update(item)
+            old_post = type_data.col.find_one({'_id':key})
+            if not old_post:
+                type_data.col.insert_one(new_post)
+                continue
+            if old_post != new_post:
+                type_data.col.replace_one({'_id':key},new_post)
+
 # [================================================ USER DATA FUNCTIONS ==================================================]
 
     async def get_user_data(self) -> Dict[int, UD]:
@@ -187,4 +201,15 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 # [================================================ FLUSH FUNCTION ==================================================]
 
     async def flush(self) -> None:
+        if self.load_on_flush:
+            self.load_all_type_data(self.user_data)
+            self.load_all_type_data(self.chat_data)
+            if self.bot_data.exists():
+                new_post = {'_id':BOT_DATA_KEY,'content':self.bot_data.data}
+                old_post = self.bot_data.col.find_one({'_id':BOT_DATA_KEY})
+                if old_post:
+                    if old_post!=new_post:
+                        self.bot_data.col.update_one({'_id':BOT_DATA_KEY},{'$set':{'content':self.bot_data}})
+                else:
+                    self.bot_data.col.insert_one(new_post)
         self.helper.client.close()
