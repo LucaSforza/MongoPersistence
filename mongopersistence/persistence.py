@@ -170,12 +170,21 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
     async def get_conversations(self, name: str) -> ConversationDict:
         if not self.conversations_data.exists():
             return
+
+        def string_to_tuple(string: str) -> tuple[int,int]:
+            string.replace('(','')
+            string.replace(')','')
+            return tuple(map(int,string.split(',')))
+
         data = self.conversations_data.data
         if not data.get(name):
             post: dict = self.conversations_data.col.find_one({'_id':name})
             if post:
                 post.pop('_id')
-                data[name] = post
+                conv_data = dict()
+                for key_string,item in post:
+                    conv_data[string_to_tuple(key_string)] = item
+                data[name] = conv_data
             else:
                 data[name] = dict()
         return deepcopy(data.get(name))
@@ -188,7 +197,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             return
         data[name][key] = new_state
         collection = self.conversations_data.col
-        new_post = {'_id':name,key:new_state}
+        new_post = {'_id':name,str(key):new_state}
         old_post: dict = collection.find_one({'_id':name})
         if not old_post:
             collection.insert_one(new_post)
