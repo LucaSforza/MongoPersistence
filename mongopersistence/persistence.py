@@ -10,7 +10,11 @@ BOT_DATA_KEY = 0
 
 class MongoPersistence(BasePersistence[BD,CD,UD]):
 
-    def __init__(self,helper: DBMongoHelper,update_interval: float = 60,load_on_flush = True):
+    def __init__(
+            self,helper: DBMongoHelper,
+            update_interval: float = 60,
+            load_on_flush = True
+        ):
         super().__init__(helper.store_data, update_interval)
 
         self.helper = helper
@@ -26,7 +30,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
 
 # [================================================ GENERAL FUNCTIONS ==================================================]
 
-    def get_data(self,type_data: typedata) -> dict:
+    def get_data(self,type_data: typedata) -> dict:       
         if not type_data.exists():
             return
         if type_data.data == {}:
@@ -63,7 +67,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         post.pop('_id')
         if post != local_data:
             local_data.update(post)
-            data[id] = post
+            data[id] = deepcopy(local_data)
 
     def drop_data(self,type_data: typedata,id) -> None:
         if not type_data.exists():
@@ -172,8 +176,8 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             return
 
         def string_to_tuple(string: str) -> tuple[int,int]:
-            string.replace('(','')
-            string.replace(')','')
+            string = string.replace('(','')
+            string = string.replace(')','')
             return tuple(map(int,string.split(',')))
 
         data = self.conversations_data.data
@@ -182,7 +186,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             if post:
                 post.pop('_id')
                 conv_data = dict()
-                for key_string,item in post:
+                for key_string,item in post.items():
                     conv_data[string_to_tuple(key_string)] = item
                 data[name] = conv_data
             else:
