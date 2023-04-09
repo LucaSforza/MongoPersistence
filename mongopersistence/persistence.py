@@ -1,36 +1,73 @@
-from mongopersistence.dbhelper import *
-
+from dataclasses import dataclass,field
 from copy import deepcopy
 from typing import Dict, Optional
 
-from telegram.ext import BasePersistence
+from telegram.ext import BasePersistence,PersistenceInput
 from telegram.ext._utils.types import BD, CD, UD, CDCData, ConversationDict, ConversationKey 
 
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
+
 BOT_DATA_KEY = 0
+
+@dataclass()
+class TypeData:
+
+    collection_name : str
+    db  : Database
+
+    col  : Collection = None
+    data : dict = field(default_factory=dict)
+    
+    def exists(self) -> bool:
+        return not self.collection_name is None
+
+    def __post_init__(self) -> None:
+        if self.exists():
+            self.col = self.db[self.collection_name]
 
 class MongoPersistence(BasePersistence[BD,CD,UD]):
 
     def __init__(
-            self,helper: DBMongoHelper,
+            self,
+            mongo_key: str,
+            db_name: str,
+            name_col_bot_data: str = None,
+            name_col_chat_data:str = None,
+            name_col_user_data:str = None,
+            #name_col_callback_data:str = None,
+            name_col_conversations:str = None,
             update_interval: float = 60,
-            load_on_flush = True
+            load_on_flush = False
         ):
-        super().__init__(helper.store_data, update_interval)
+        
+        #TODO: add support for callback_data
+        #TODO: add a feature that allows you to ignore dictionary elements using string lists so they don't become persistent
+        
+        self.client = MongoClient(mongo_key)
+        self.db     = self.client[db_name]
 
-        self.helper = helper
+        self.bot_data = TypeData(name_col_bot_data,self.db)
+        self.chat_data = TypeData(name_col_chat_data,self.db)
+        self.user_data = TypeData(name_col_user_data,self.db)
+        #self.callback_data = TypeData(name_col_callback_data,self.db)
+        self.conversations_data = TypeData(name_col_conversations,self.db)
+
+        self.store_data = PersistenceInput(
+            self.bot_data.exists(),
+            self.chat_data.exists(),
+            self.user_data.exists(),
+            False #self.callback_data.exists()
+        )
+                
+        super().__init__(self.store_data, update_interval)
 
         self.load_on_flush = load_on_flush
 
-        self.user_data : typedata = helper.user_data
-        self.chat_data : typedata = helper.chat_data
-        self.bot_data  : typedata = helper.bot_data
-
-        #self.callback_data      : typedata = helper.callback_data
-        self.conversations_data : typedata = helper.conversations_data
-
 # [================================================ GENERAL FUNCTIONS ==================================================]
 
-    def get_data(self,type_data: typedata) -> dict:       
+    def get_data(self,type_data: TypeData) -> dict:       
         if not type_data.exists():
             return
         if type_data.data == {}:
@@ -41,7 +78,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
                 data[id] = post
         return deepcopy(data)
 
-    def update_data(self,type_data: typedata,id,new_data) -> None:
+    def update_data(self,type_data: TypeData,id,new_data) -> None:
         if not type_data.exists() or self.load_on_flush or new_data == {}:
             return
         data = type_data.data
@@ -57,7 +94,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             type_data.col.replace_one({'_id':id},new_post)
         data[id] = new_data
     
-    def refresh_data(self,type_data: typedata,id,local_data: dict) -> None:
+    def refresh_data(self,type_data: TypeData,id,local_data: dict) -> None:
         if not type_data.exists() or self.load_on_flush:
             return
         data = type_data.data
@@ -69,7 +106,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             local_data.update(post)
             data[id] = deepcopy(local_data)
 
-    def drop_data(self,type_data: typedata,id) -> None:
+    def drop_data(self,type_data: TypeData,id) -> None:
         if not type_data.exists():
             return
         data = type_data.data
@@ -77,7 +114,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             data.pop(id)
             type_data.col.delete_one({'_id':id})
 
-    def load_all_type_data(self,type_data: typedata) -> None:
+    def load_all_type_data(self,type_data: TypeData) -> None:
         if not type_data.exists():
             return
         data = type_data.data
@@ -225,4 +262,4 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
                         self.bot_data.col.update_one({'_id':BOT_DATA_KEY},{'$set':{'content':self.bot_data}})
                 else:
                     self.bot_data.col.insert_one(new_post)
-        self.helper.client.close()
+        self.client.close()
