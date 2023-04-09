@@ -12,25 +12,25 @@ If you haven't already, click [here](https://www.mongodb.com) to get started.
 Then create a collection in your database for each type of data you want to make persistent.
 
 ```python
-from mongopersistence import *
+from mongopersistence import MongoPersistence
 from telegram.ext import Application
 
-dbhelper = DBMongoHelper(
+mongodb = MongoPersistence(
     'your-mongodb-key',
     'your-database-name',
     name_col_user_data='my-collection-for-user-data'
 )
 
 application = Application.builder().token('your-token'
-        ).persistence(MongoPersistence(dbhelper)
+        ).persistence(mongodb
         ).build()
 ```
 
-With this code you will add persistence only to user_data and since the `load_on_flush` attribute has not been specified then the data will be loaded only when the bot is shut down.
+This code will only add persistence to user_data and since the `load_on_flush` attribute has not been specified, the data will be loaded continuously into the database even when the bot is running.
 
-If you want the data to be loaded continuously instead define:
+If you want the data not to be loaded continuously instead define:
 ```python
- MongoPersistence(dbhelper,load_on_flush=False,update_interval=60)
+ MongoPersistence( ... ,load_on_flush=True,update_interval=60)
 ```
 
 `update_interval` can also be undefined and the default is `60`.
