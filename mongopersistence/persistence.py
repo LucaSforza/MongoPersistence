@@ -1,8 +1,12 @@
 import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
+from dataclasses import dataclass, field
+from typing import Generic, TypeVar
 
-from telegram.ext import BasePersistence
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection, AsyncIOMotorDatabase
+from pymongo.errors import CollectionInvalid
+from telegram.ext import BasePersistence, PersistenceInput
 
 # noinspection PyProtectedMember
 from telegram.ext._utils.types import (
@@ -14,13 +18,13 @@ from telegram.ext._utils.types import (
     ConversationKey,
 )
 
-from mongopersistence.dbhelper import DBMongoHelper, TypeData
-
 BOT_DATA_KEY = 0
 
 NEW_DATA = BD | CD | UD | CDCData | ConversationDict
 
 logger = logging.getLogger(__name__)
+D = TypeVar("D", bound=dict)
+_ConvD = TypeVar("_ConvD", bound=ConversationDict)
 
 
 def log_data(func: Callable[..., Awaitable]) -> Callable[..., Awaitable]:
@@ -35,30 +39,92 @@ def log_data(func: Callable[..., Awaitable]) -> Callable[..., Awaitable]:
     return wrapper
 
 
+@dataclass
+class TypeData(Generic[D]):
+    collection_name: str
+    db: AsyncIOMotorDatabase
+
+    col: AsyncIOMotorCollection = None
+    data: dict = field(default_factory=dict)
+
+    create_col: bool = False
+
+    def exists(self) -> bool:
+        return self._exist
+
+    def __post_init__(self) -> None:
+        self._exist = self.collection_name is not None
+
+    async def post_init(self) -> None:
+        self._exist = False
+        if self.collection_name is None:
+            return
+        if self.create_col:
+            logger.info(f"Creating collection {self.collection_name!r}...")
+            try:
+                self.col = await self.db.create_collection(self.collection_name)
+            except CollectionInvalid as e:
+                if e.args[0] != f"collection {self.collection_name} already exists":
+                    raise e
+                logger.info(f"Collection {self.collection_name!r} already exists")
+                self.col = self.db.get_collection(self.collection_name)
+        else:
+            logger.info(f"Getting collection {self.collection_name!r}...")
+            self.col = await self.db.get_collection(self.collection_name)
+        self._exist = True
+
+
 class MongoPersistence(BasePersistence[BD, CD, UD]):
     def __init__(
         self,
-        helper: DBMongoHelper[BD, CD, UD, ConversationDict],
+        mongo_url: str,
+        db_name: str,
+        name_col_user_data: str | None = None,
+        name_col_chat_data: str | None = None,
+        name_col_bot_data: str | None = None,
+        # name_col_callback_data: str | None = None,
+        name_col_conversations_data: str | None = None,
+        create_col_if_not_exist: bool = False,
         update_interval: float = 60,
         load_on_flush=True,
     ):
-        super().__init__(helper.store_data, update_interval)
+        self.client = AsyncIOMotorClient(mongo_url)
+        self.db = self.client[db_name]
 
-        self.helper = helper
+        self.bot_data: TypeData[BD] = TypeData(name_col_bot_data, self.db, create_col=create_col_if_not_exist)
+        self.chat_data: TypeData[CD] = TypeData(name_col_chat_data, self.db, create_col=create_col_if_not_exist)
+        self.user_data: TypeData[UD] = TypeData(name_col_user_data, self.db, create_col=create_col_if_not_exist)
+        # self.callback_data = TypeData(self.name_col_callback_data,self.db, create_col=self.create_col_if_not_exist)
+        self.conversations_data: TypeData[_ConvD] = TypeData(
+            name_col_conversations_data, self.db, create_col=create_col_if_not_exist
+        )
 
         self.load_on_flush = load_on_flush
 
-        self.user_data = helper.user_data
-        self.chat_data = helper.chat_data
-        self.bot_data = helper.bot_data
+        super().__init__(
+            PersistenceInput(
+                self.bot_data.exists(),
+                self.chat_data.exists(),
+                self.user_data.exists(),
+                False,  # self.callback_data.exists()
+            ),
+            update_interval,
+        )
 
-        # self.callback_data: TypeData = helper.callback_data
-        self.conversations_data = helper.conversations_data
+    async def post_init(self):
+        if getattr(self, "_inited", False):
+            return
+
+        await self.bot_data.post_init()
+        await self.chat_data.post_init()
+        await self.user_data.post_init()
+        await self.conversations_data.post_init()
+        setattr(self, "_inited", True)
 
     # [==================================== GENERAL FUNCTIONS ====================================]
 
     async def get_data(self, type_data: TypeData) -> dict:
-        await self.helper.post_init()
+        await self.post_init()
         if not type_data.exists():
             return {}
         data = type_data.data
@@ -70,7 +136,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         return deepcopy(data)
 
     async def update_data(self, type_data: TypeData, id_: int, new_data: NEW_DATA) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         if not type_data.exists() or self.load_on_flush or not new_data:
             return
         data = type_data.data
@@ -87,11 +153,11 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         data[id_] = deepcopy(new_data)
 
     async def refresh_data(self, type_data: TypeData, id_: int, local_data: NEW_DATA) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         return await self.update_data(type_data, id_, local_data)
 
     async def drop_data(self, type_data: TypeData, id_: int) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         if not type_data.exists():
             return
         data = type_data.data
@@ -100,7 +166,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
             await type_data.col.delete_one({"_id": id_})
 
     async def load_all_type_data(self, type_data: TypeData) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         if not type_data.exists():
             return
         data = type_data.data
@@ -136,7 +202,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
 
     @log_data
     async def get_bot_data(self) -> BD:
-        await self.helper.post_init()
+        await self.post_init()
         if not self.bot_data.exists():
             return
         data = self.bot_data.data
@@ -149,7 +215,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
 
     @log_data
     async def update_bot_data(self, data: BD) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         if not self.bot_data.exists() or self.load_on_flush or data == {}:
             return
         old_data = self.bot_data.data
@@ -200,7 +266,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
 
     @log_data
     async def get_conversations(self, name: str) -> ConversationDict:
-        await self.helper.post_init()
+        await self.post_init()
         if not self.conversations_data.exists():
             return {}
 
@@ -225,7 +291,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
 
     @log_data
     async def update_conversation(self, name: str, key: ConversationKey, new_state: object | None) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         if self.load_on_flush or not self.conversations_data.exists():
             return
         data: dict[str, dict] = self.conversations_data.data
@@ -246,7 +312,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
 
     @log_data
     async def flush(self) -> None:
-        await self.helper.post_init()
+        await self.post_init()
         if self.load_on_flush:
             await self.load_all_type_data(self.user_data)
             await self.load_all_type_data(self.chat_data)
@@ -258,4 +324,4 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
                         await self.bot_data.col.update_one({"_id": BOT_DATA_KEY}, {"$set": {"content": self.bot_data}})
                 else:
                     await self.bot_data.col.insert_one(new_post)
-        self.helper.client.close()
+        self.client.close()
