@@ -19,6 +19,11 @@ class TypeData:
 
     col  : Collection = None
     data : dict = field(default_factory=dict)
+    to_ignore:list = field(default_factory=list)
+    
+    def filter(self,data: dict) -> None:
+        for item in self.to_ignore:
+            data.pop(item,None)
     
     def exists(self) -> bool:
         return not self.collection_name is None
@@ -38,6 +43,11 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             name_col_user_data:str = None,
             #name_col_callback_data:str = None,
             name_col_conversations:str = None,
+            ignore_general_data:list[str] = None,
+            ignore_user_data:list[str] = None,
+            ignore_chat_data:list[str] = None,
+            ignore_bot_data:list[str] = None,
+            #ignore_callback_data:list[str] = None
             update_interval: float = 60,
             load_on_flush = False
         ):
@@ -45,14 +55,46 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         #TODO: add support for callback_data
         #TODO: add a feature that allows you to ignore dictionary elements using string lists so they don't become persistent
         
+        if ignore_general_data is None:
+            ignore_general_data = []
+            
+        if ignore_user_data is None:
+            ignore_user_data = []
+            
+        if ignore_chat_data is None:
+            ignore_chat_data = []
+            
+        if ignore_bot_data is None:
+            ignore_bot_data = []
+        
+        ignore_user_data.extend(ignore_general_data)
+        ignore_chat_data.extend(ignore_general_data)
+        ignore_bot_data.extend(ignore_general_data)
+        #ignore_callback_data.extend(ignore_general_data)
+        
         self.client = MongoClient(mongo_key)
         self.db     = self.client[db_name]
 
-        self.bot_data = TypeData(name_col_bot_data,self.db)
-        self.chat_data = TypeData(name_col_chat_data,self.db)
-        self.user_data = TypeData(name_col_user_data,self.db)
-        #self.callback_data = TypeData(name_col_callback_data,self.db)
-        self.conversations_data = TypeData(name_col_conversations,self.db)
+        self.bot_data = TypeData(
+            name_col_bot_data,
+            self.db,
+            to_ignore=ignore_bot_data
+        )
+        self.chat_data = TypeData(
+            name_col_chat_data,
+            self.db,
+            to_ignore=ignore_chat_data
+        )
+        self.user_data = TypeData(
+            name_col_user_data,
+            self.db,
+            to_ignore=ignore_user_data
+        )
+        #self.callback_data = TypeData(name_col_callback_data,self.db,to_ignore=ignore_callback_data)
+        self.conversations_data = TypeData(
+            name_col_conversations,
+            self.db
+        )
 
         self.store_data = PersistenceInput(
             self.bot_data.exists(),
@@ -64,14 +106,15 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         super().__init__(self.store_data, update_interval)
 
         self.load_on_flush = load_on_flush
+        
 
 # [================================================ GENERAL FUNCTIONS ==================================================]
 
     def get_data(self,type_data: TypeData) -> dict:       
         if not type_data.exists():
             return
-        if type_data.data == {}:
-            data = type_data.data
+        data = type_data.data
+        if data == {}:
             post : dict
             for post in type_data.col.find():
                 id = post.pop('_id')
@@ -81,6 +124,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
     def update_data(self,type_data: TypeData,id,new_data) -> None:
         if not type_data.exists() or self.load_on_flush or new_data == {}:
             return
+        type_data.filter(new_data)
         data = type_data.data
         if data.get(id) == new_data:
             return
@@ -102,16 +146,17 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         if not post:
             return
         post.pop('_id')
-        if post != local_data:
+        copy_local_data = deepcopy(local_data)
+        type_data.filter(copy_local_data)
+        if post != copy_local_data:
             local_data.update(post)
-            data[id] = deepcopy(local_data)
+            data[id] = copy_local_data
 
     def drop_data(self,type_data: TypeData,id) -> None:
         if not type_data.exists():
             return
         data = type_data.data
-        if data.get(id):
-            data.pop(id)
+        if data.pop(id,None) is not None:
             type_data.col.delete_one({'_id':id})
 
     def load_all_type_data(self,type_data: TypeData) -> None:
@@ -122,7 +167,7 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
             new_post = {'_id':key}
             new_post.update(item)
             old_post = type_data.col.find_one({'_id':key})
-            if not old_post:
+            if old_post is None:
                 type_data.col.insert_one(new_post)
                 continue
             if old_post != new_post:
@@ -151,21 +196,22 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         if data == {}:
             collection = self.bot_data.col
             post: dict = collection.find_one({'_id':BOT_DATA_KEY})
-            if post:
-                data = post['content']
+            if post is not None:
+                data = post.get('content',{})
         return deepcopy(data)
 
     async def update_bot_data(self, data: BD) -> None:
         if not self.bot_data.exists() or self.load_on_flush or data == {}:
             return
         old_data = self.bot_data.data
+        self.bot_data.filter(data)
         if old_data == data:
             return
         collection = self.bot_data.col
         old_data = data
         new_post = {'_id':BOT_DATA_KEY,'content':data}
         old_post = collection.find_one({"_id":BOT_DATA_KEY})
-        if not old_post:
+        if old_post is None:
             collection.insert_one(new_post)
             return
         if old_post != new_post:
@@ -175,9 +221,11 @@ class MongoPersistence(BasePersistence[BD,CD,UD]):
         if self.load_on_flush or not self.bot_data.exists():
             return
         post : dict = self.bot_data.col.find_one({'_id':BOT_DATA_KEY})
-        if post:
+        if post is not None:
             external_data = post.get('content')
-            if external_data != bot_data:
+            copy_bot_data = deepcopy(bot_data)
+            self.bot_data.filter(copy_bot_data)
+            if external_data != copy_bot_data:
                 self.bot_data.data = external_data
                 bot_data: dict.update(external_data)
 
