@@ -4,3 +4,5 @@ tests/
 costants.py
 test_bot.py
 dist/
+.idea/
+.vscode/
