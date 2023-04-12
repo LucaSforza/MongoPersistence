@@ -43,12 +43,12 @@ If you want certain elements to be ignored and not saved in your database you co
 from mongopersistence import MongoPersistence
 
 mongodb = MongoPersistence(
-	'your-mongodb-key',
-	'your-database-name',
-	name_col_user_data='my-collection-for-user-data',
-  name_col_chat_data='my-collection-for-chat-data',
-	ignore_general_data= ['cache'],
-	ignore_user_data=['foo','bar']
+    'your-mongodb-key',
+    'your-database-name',
+    name_col_user_data='my-collection-for-user-data',
+    name_col_chat_data='my-collection-for-chat-data',
+    ignore_general_data= ['cache'],
+    ignore_user_data=['foo','bar']
 )
 ```
 
