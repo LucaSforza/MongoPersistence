@@ -2,7 +2,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo.errors import CollectionInvalid
@@ -49,6 +49,13 @@ class TypeData(Generic[D]):
 
     create_col: bool = False
 
+    to_ignore: list[str] = field(default_factory=list)
+
+    def filter(self, data: dict[str, Any]) -> dict[str, Any]:
+        for item in self.to_ignore:
+            data.pop(item, None)
+        return data
+
     def exists(self) -> bool:
         return self._exist
 
@@ -82,33 +89,64 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         name_col_user_data: str | None = None,
         name_col_chat_data: str | None = None,
         name_col_bot_data: str | None = None,
-        # name_col_callback_data: str | None = None,
         name_col_conversations_data: str | None = None,
+        # name_col_callback_data: str | None = None,
         create_col_if_not_exist: bool = False,
+        ignore_general_data: list[str] = None,
+        ignore_user_data: list[str] = None,
+        ignore_chat_data: list[str] = None,
+        ignore_bot_data: list[str] = None,
+        ignore_conversations_data: list[str] = None,
+        # ignore_callback_data: list[str] = None,
         update_interval: float = 60,
         load_on_flush=True,
     ):
         self.client = AsyncIOMotorClient(mongo_url)
         self.db = self.client[db_name]
+        ignore_general_data = ignore_general_data or []
 
-        self.bot_data: TypeData[BD] = TypeData(name_col_bot_data, self.db, create_col=create_col_if_not_exist)
-        self.chat_data: TypeData[CD] = TypeData(name_col_chat_data, self.db, create_col=create_col_if_not_exist)
-        self.user_data: TypeData[UD] = TypeData(name_col_user_data, self.db, create_col=create_col_if_not_exist)
+        ignore_user_data = ignore_user_data or []
+        ignore_chat_data = ignore_chat_data or []
+        ignore_bot_data = ignore_bot_data or []
+        ignore_conversations_data = ignore_conversations_data or []
+
+        self.bot_data: TypeData[BD] = TypeData(
+            name_col_bot_data,
+            self.db,
+            create_col=create_col_if_not_exist,
+            to_ignore=ignore_general_data + ignore_bot_data,
+        )
+        self.chat_data: TypeData[CD] = TypeData(
+            name_col_chat_data,
+            self.db,
+            create_col=create_col_if_not_exist,
+            to_ignore=ignore_general_data + ignore_chat_data,
+        )
+        self.user_data: TypeData[UD] = TypeData(
+            name_col_user_data,
+            self.db,
+            create_col=create_col_if_not_exist,
+            to_ignore=ignore_general_data + ignore_user_data,
+        )
         # self.callback_data = TypeData(self.name_col_callback_data,self.db, create_col=self.create_col_if_not_exist)
         self.conversations_data: TypeData[_ConvD] = TypeData(
-            name_col_conversations_data, self.db, create_col=create_col_if_not_exist
+            name_col_conversations_data,
+            self.db,
+            create_col=create_col_if_not_exist,
+            to_ignore=ignore_general_data + ignore_conversations_data,
         )
 
         self.load_on_flush = load_on_flush
 
+        self.store_data = PersistenceInput(
+            self.bot_data.exists(),
+            self.chat_data.exists(),
+            self.user_data.exists(),
+            False,  # self.callback_data.exists()
+        )
         super().__init__(
-            PersistenceInput(
-                self.bot_data.exists(),
-                self.chat_data.exists(),
-                self.user_data.exists(),
-                False,  # self.callback_data.exists()
-            ),
-            update_interval,
+            store_data=self.store_data,
+            update_interval=update_interval,
         )
 
     async def post_init(self):
@@ -119,6 +157,14 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         await self.chat_data.post_init()
         await self.user_data.post_init()
         await self.conversations_data.post_init()
+
+        self.store_data = PersistenceInput(
+            self.bot_data.exists(),
+            self.chat_data.exists(),
+            self.user_data.exists(),
+            False,  # self.callback_data.exists()
+        )
+
         setattr(self, "_inited", True)
 
     # [==================================== GENERAL FUNCTIONS ====================================]
@@ -128,6 +174,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         if not type_data.exists():
             return {}
         data = type_data.data
+
         if not type_data.data:
             post: dict
             for post in await type_data.col.find().to_list(length=None):
@@ -142,8 +189,8 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         data = type_data.data
         if data.get(id_) == new_data:
             return
-        new_post = {"_id": id_}
-        new_post.update(new_data)
+        new_post = {"_id": id_} | new_data
+        type_data.filter(new_post)
         old_post = await type_data.col.find_one({"_id": id_})
         if not old_post:
             await type_data.col.insert_one(new_post)
@@ -153,7 +200,6 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         data[id_] = deepcopy(new_data)
 
     async def refresh_data(self, type_data: TypeData, id_: int, local_data: NEW_DATA) -> None:
-        await self.post_init()
         return await self.update_data(type_data, id_, local_data)
 
     async def drop_data(self, type_data: TypeData, id_: int) -> None:
@@ -222,7 +268,8 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         if old_data == data:
             return
         collection = self.bot_data.col
-        new_post = {"_id": BOT_DATA_KEY, "content": data}
+        new_post = {"_id": BOT_DATA_KEY, "content": deepcopy(data)}
+        self.bot_data.filter(new_post["content"])
         old_post = await collection.find_one({"_id": BOT_DATA_KEY})
         if not old_post:
             await collection.insert_one(new_post)

@@ -19,20 +19,22 @@ from telegram.ext import Application
 from mongopersistence import MongoPersistence
 
 persistence = MongoPersistence(
-  mongo_url='mongodb://username:password@your-ip:27017/',
-  db_name='your-database-name',
-  name_col_user_data='my-collection-for-user-data',  # optional
-  name_col_chat_data='my-collection-for-chat-data',  # optional
-  name_col_bot_data='my-collection-for-bot-data',  # optional
-  name_col_conversations_data='my-collection-for-conversations',  # optional
-  create_col_if_not_exist=True  # optional
+    mongo_url="mongodb://username:password@your-ip:27017/",
+    db_name="your-database-name",
+    name_col_user_data="my-collection-for-user-data",  # optional
+    name_col_chat_data="my-collection-for-chat-data",  # optional
+    name_col_bot_data="my-collection-for-bot-data",  # optional
+    name_col_conversations_data="my-collection-for-conversations",  # optional
+    create_col_if_not_exist=True,  # optional
+    ignore_general_data=["cache"],
+    ignore_user_data=["foo", "bar"],
 )
 
 application = (
-  Application
-  .builder()
-  .token('your-token')
-  .persistence(persistence).build()
+    Application
+    .builder()
+    .token("your-token")
+    .persistence(persistence).build()
 )
 ```
 
@@ -68,5 +70,3 @@ pip install mongopersistence
 Search all the TODOs in this repo to see how you can contribute to this package, but in general:
 
 - Add support for make persistent callback data.
-
-- Add a feature that allows you to ignore dictionary elements using string lists so they don't become persistent.
