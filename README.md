@@ -2,7 +2,7 @@
 
 Package to add persistence to your telegram bot in a mongodb database.
 
-ATTENTION: MongoPersistence is a new project, it should work, but if you encounter any bugs please report them in
+ATTENTION: MongoPersistence is a new project, it should work, but if you encounter any bugs, please report them in
 the [Issues](https://github.com/LucaSforza/MongoPersistence/issues) section and if you have an idea how to fix it, please
 consider opening a [PR](https://github.com/LucaSforza/MongoPersistence/pulls).
 
@@ -16,9 +16,9 @@ Then create a collection in your database for each type of data you want to make
 ```python
 from telegram.ext import Application
 
-from mongopersistence import *
+from mongopersistence import MongoPersistence
 
-dbhelper = DBMongoHelper(
+persistence = MongoPersistence(
   mongo_url='mongodb://username:password@your-ip:27017/',
   db_name='your-database-name',
   name_col_user_data='my-collection-for-user-data',  # optional
@@ -32,17 +32,17 @@ application = (
   Application
   .builder()
   .token('your-token')
-  .persistence(MongoPersistence(dbhelper)).build()
+  .persistence(persistence).build()
 )
 ```
 
 With this code you will add persistence only to user_data and since the `load_on_flush` attribute has not been specified
 then the data will be loaded only when the bot is shut down.
 
-If you want the data to be loaded continuously instead define:
+If you want the data to be loaded continuously instead, define:
 
 ```python
-MongoPersistence(dbhelper, load_on_flush=False, update_interval=60)
+MongoPersistence(..., load_on_flush=False, update_interval=60)
 ```
 
 `update_interval` can also be undefined and the default is `60`.
