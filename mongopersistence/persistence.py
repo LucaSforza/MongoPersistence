@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -77,7 +78,7 @@ class TypeData(Generic[D]):
                 self.col = self.db.get_collection(self.collection_name)
         else:
             logger.info(f"Getting collection {self.collection_name!r}...")
-            self.col = await self.db.get_collection(self.collection_name)
+            self.col = self.db.get_collection(self.collection_name)
         self._exist = True
 
 
@@ -189,6 +190,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         data = type_data.data
         if data.get(id_) == new_data:
             return
+        data[id_] = deepcopy(new_data)
         new_post = {"_id": id_} | new_data
         type_data.filter(new_post)
         old_post = await type_data.col.find_one({"_id": id_})
@@ -197,7 +199,6 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
             return
         if old_post != new_post:
             await type_data.col.replace_one({"_id": id_}, new_post)
-        data[id_] = deepcopy(new_data)
 
     async def refresh_data(self, type_data: TypeData, id_: int, local_data: NEW_DATA) -> None:
         return await self.update_data(type_data, id_, local_data)
@@ -216,15 +217,17 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         if not type_data.exists():
             return
         data = type_data.data
-        for key, item in data.items():
-            new_post = {"_id": key}
-            new_post.update(item)
+
+        async def gather(key: str, item: dict):
+            new_post = {"_id": key} | item
             old_post = await type_data.col.find_one({"_id": key})
             if not old_post:
                 await type_data.col.insert_one(new_post)
-                continue
+                return
             if old_post != new_post:
                 await type_data.col.replace_one({"_id": key}, new_post)
+
+        await asyncio.gather(*[gather(key, item) for key, item in data.items()])
 
     # [==================================== USER DATA FUNCTIONS ======================================]
 
@@ -267,8 +270,10 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         old_data = self.bot_data.data
         if old_data == data:
             return
+        new_data = deepcopy(data)
+        self.bot_data.data = new_data
         collection = self.bot_data.col
-        new_post = {"_id": BOT_DATA_KEY, "content": deepcopy(data)}
+        new_post = {"_id": BOT_DATA_KEY, "content": new_data}
         self.bot_data.filter(new_post["content"])
         old_post = await collection.find_one({"_id": BOT_DATA_KEY})
         if not old_post:
@@ -318,9 +323,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
             return {}
 
         def string_to_tuple(string: str) -> tuple[int, int]:
-            string = string.replace("(", "")
-            string = string.replace(")", "")
-            first, second = map(int, string.split(","))
+            first, second = map(int, string.replace("(", "").replace(")", "").split(","))
             return first, second
 
         data = self.conversations_data.data
@@ -365,7 +368,7 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
             await self.load_all_type_data(self.chat_data)
             if self.bot_data.exists():
                 new_post = {"_id": BOT_DATA_KEY, "content": self.bot_data.data}
-                old_post = self.bot_data.col.find_one({"_id": BOT_DATA_KEY})
+                old_post = await self.bot_data.col.find_one({"_id": BOT_DATA_KEY})
                 if old_post:
                     if old_post != new_post:
                         await self.bot_data.col.update_one({"_id": BOT_DATA_KEY}, {"$set": {"content": self.bot_data}})
