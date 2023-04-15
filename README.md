@@ -70,3 +70,5 @@ pip install mongopersistence
 Search all the TODOs in this repo to see how you can contribute to this package, but in general:
 
 - Add support for make persistent callback data.
+
+- Create tests
