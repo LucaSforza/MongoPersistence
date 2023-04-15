@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mongopersistence"
-version = "0.2.0"
+version = "0.3.0"
 description = "Package to add persistence to your telegram bot using pymongo"
 authors = ["LucaSforza <lucasforza1234@icloud.com>"]
 license = "MIT"
@@ -8,10 +8,39 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-pymongo = "^4.3.3"
 python-telegram-bot = "^20.1"
+motor = "^3.1.2"
 
+[tool.poetry.group.dev.dependencies]
+black = "^22.3.0"
+pre-commit = "^2.20.0"
+ruff = "^0.0.261"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+include = '\.pyi?$'
+force-exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.ruff_cache
+  | locales/.*
+)/
+'''
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+select = [
+    "E", # pyflakes
+    "F", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "UP", # pyupgrade
+    "I", # isort
+    "C4", # flake8-comprehensions
+]
