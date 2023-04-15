@@ -185,14 +185,16 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
 
     async def update_data(self, type_data: TypeData, id_: int, new_data: NEW_DATA) -> None:
         await self.post_init()
-        if not type_data.exists() or self.load_on_flush or not new_data:
+        if not type_data.exists() or not new_data:
             return
+        type_data.filter(new_data)
         data = type_data.data
         if data.get(id_) == new_data:
             return
         data[id_] = deepcopy(new_data)
+        if self.load_on_flush:
+            return
         new_post = {"_id": id_} | new_data
-        type_data.filter(new_post)
         old_post = await type_data.col.find_one({"_id": id_})
         if not old_post:
             await type_data.col.insert_one(new_post)
@@ -265,13 +267,15 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
     @log_data
     async def update_bot_data(self, data: BD) -> None:
         await self.post_init()
-        if not self.bot_data.exists() or self.load_on_flush or data == {}:
+        if not self.bot_data.exists() or data == {}:
             return
         old_data = self.bot_data.data
         if old_data == data:
             return
         new_data = deepcopy(data)
         self.bot_data.data = new_data
+        if self.load_on_flush:
+            return
         collection = self.bot_data.col
         new_post = {"_id": BOT_DATA_KEY, "content": new_data}
         self.bot_data.filter(new_post["content"])
@@ -342,12 +346,14 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
     @log_data
     async def update_conversation(self, name: str, key: ConversationKey, new_state: object | None) -> None:
         await self.post_init()
-        if self.load_on_flush or not self.conversations_data.exists():
+        if not self.conversations_data.exists():
             return
         data: dict[str, dict] = self.conversations_data.data
         if data.setdefault(name, {}).get(key) == new_state:
             return
         data[name][key] = new_state
+        if self.load_on_flush:
+            return
         collection = self.conversations_data.col
         new_post = {"_id": name, str(key): new_state}
         old_post: dict = await collection.find_one({"_id": name})
@@ -371,7 +377,9 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
                 old_post = await self.bot_data.col.find_one({"_id": BOT_DATA_KEY})
                 if old_post:
                     if old_post != new_post:
-                        await self.bot_data.col.update_one({"_id": BOT_DATA_KEY}, {"$set": {"content": self.bot_data}})
+                        await self.bot_data.col.update_one(
+                            {"_id": BOT_DATA_KEY}, {"$set": {"content": self.bot_data.data}}
+                        )
                 else:
                     await self.bot_data.col.insert_one(new_post)
         self.client.close()
