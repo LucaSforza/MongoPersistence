@@ -8,16 +8,7 @@ from typing import Any, Generic, TypeVar
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo.errors import CollectionInvalid
 from telegram.ext import BasePersistence, PersistenceInput
-
-# noinspection PyProtectedMember
-from telegram.ext._utils.types import (
-    BD,
-    CD,
-    UD,
-    CDCData,
-    ConversationDict,
-    ConversationKey,
-)
+from telegram.ext._utils.types import BD, CD, UD, CDCData, ConversationDict, ConversationKey
 
 BOT_DATA_KEY = 0
 
