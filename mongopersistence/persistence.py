@@ -76,8 +76,8 @@ class TypeData(Generic[D]):
 class MongoPersistence(BasePersistence[BD, CD, UD]):
     def __init__(
         self,
-        mongo_url: str,
-        db_name: str,
+        mongo_url: str | AsyncIOMotorClient,
+        db_name: str | AsyncIOMotorDatabase,
         name_col_user_data: str | None = None,
         name_col_chat_data: str | None = None,
         name_col_bot_data: str | None = None,
@@ -93,8 +93,16 @@ class MongoPersistence(BasePersistence[BD, CD, UD]):
         update_interval: float = 60,
         load_on_flush=True,
     ):
-        self.client = AsyncIOMotorClient(mongo_url)
-        self.db = self.client[db_name]
+        if isinstance(mongo_url, AsyncIOMotorClient):
+            self.client = mongo_url
+        else:
+            self.client = AsyncIOMotorClient(mongo_url)
+
+        if isinstance(db_name, AsyncIOMotorDatabase):
+            self.db = db_name
+        else:
+            self.db = self.client[db_name]
+            
         ignore_general_data = ignore_general_data or []
 
         ignore_user_data = ignore_user_data or []
